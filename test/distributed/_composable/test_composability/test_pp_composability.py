@@ -390,7 +390,14 @@ class ComposabilityTest(MultiProcessTestCase):
             ScheduleInterleavedZeroBubble,
         ],
     )
-    def test_3d_with_tp_dp_pp(self, ScheduleClass):
+    @parametrize(
+        "MixedPrecisionParam",
+        [
+            torch.bfloat16,
+            torch.float32,
+        ],
+    )
+    def test_3d_with_tp_dp_pp(self, ScheduleClass, MixedPrecisionParam):
         device = torch.device("cuda", self.device)
         torch.cuda.set_device(self.device)
         store = torch.distributed.FileStore(self.file_name, self.world_size)
@@ -426,10 +433,10 @@ class ComposabilityTest(MultiProcessTestCase):
             return y.sum()
 
         # Apply DP to stage module
-        def apply_dp(partial_model):
+        def apply_fsdp(partial_model):
             # apply FSDP
             mp_policy = MixedPrecisionPolicy(
-                param_dtype=torch.float32,
+                param_dtype=MixedPrecisionParam,
                 reduce_dtype=torch.float32,
             )
             fsdp_config = {"mesh": dp_mesh, "mp_policy": mp_policy}
@@ -464,7 +471,7 @@ class ComposabilityTest(MultiProcessTestCase):
             partial_model.to(self.device)
 
             tp_model = apply_tp(partial_model, tp_mesh)
-            dp_model = apply_dp(tp_model)
+            dp_model = apply_fsdp(tp_model)
             pipeline_stage = PipelineStage(
                 dp_model,
                 stage_idx,
@@ -489,7 +496,7 @@ class ComposabilityTest(MultiProcessTestCase):
                 partial_model.to(self.device)
 
                 tp_model = apply_tp(partial_model, tp_mesh)
-                dp_model = apply_dp(tp_model)
+                dp_model = apply_fsdp(tp_model)
                 stage = PipelineStage(
                     dp_model,
                     stage_idx,
