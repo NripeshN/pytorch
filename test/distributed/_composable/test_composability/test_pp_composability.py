@@ -7,10 +7,7 @@ import torch
 import torch.distributed.checkpoint as dcp
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributed._composable.fsdp.fully_shard import (
-    fully_shard,
-    MixedPrecisionPolicy,
-)
+
 from torch.distributed._tensor import DTensor
 from torch.distributed.checkpoint import FileSystemReader
 from torch.distributed.checkpoint.default_planner import _EmptyStateDictLoadPlanner
@@ -18,6 +15,7 @@ from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_di
 from torch.distributed.checkpoint.state_dict_loader import _load_state_dict
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.pipelining import PipelineStage
 from torch.distributed.pipelining.schedules import (
     PipelineScheduleSingle,
@@ -68,11 +66,11 @@ class MLPModule(torch.nn.Module):
 
 
 class MLPModuleEven(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, d_hid: int):
         super().__init__()
-        self.net1 = nn.Linear(8, 8)
-        self.net2 = nn.Linear(8, 8)
-        self.net3 = nn.Linear(8, 16)
+        self.net1 = nn.Linear(d_hid, d_hid)
+        self.net2 = nn.Linear(d_hid, d_hid)
+        self.net3 = nn.Linear(d_hid, d_hid * 2)
 
     def forward(self, x):
         x = F.relu(self.net1(x))
@@ -407,6 +405,7 @@ class ComposabilityTest(MultiProcessTestCase):
             rank=self.rank,
             world_size=self.world_size,
         )
+        dim = 8
         tp_size = 2
         pp_size = 2
         num_microbatches = 8
@@ -423,8 +422,7 @@ class ComposabilityTest(MultiProcessTestCase):
 
         # create "entire model"
         total_layers = 8
-        dim = 8
-        full_model = nn.ModuleList([MLPModuleEven() for _ in range(total_layers)])
+        full_model = nn.ModuleList([MLPModuleEven(dim) for _ in range(total_layers)])
         ref_model = nn.Sequential(*copy.deepcopy(full_model))
         ref_model.to(self.device)
 
